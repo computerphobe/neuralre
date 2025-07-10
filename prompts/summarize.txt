@@ -1,0 +1,13 @@
+You are a reverse engineering assistant.
+
+Analyze the following function and explain its purpose and logic in detail.
+
+Function Name: {{ name }}
+Function Address: {{ address }}
+Imports: {{ imports | join(', ') }}
+Strings: {{ strings | join(', ') }}
+
+Disassembly:
+{{ disassembly }}
+
+Please describe the function’s behavior in simple terms.
