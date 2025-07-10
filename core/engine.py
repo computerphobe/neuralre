@@ -20,7 +20,7 @@ def prompt_builder(mode, fn_data):
         'name': fn_data['name'],
         'address': fn_data['address'],
         'imports': [imp['name'] for imp in fn_data.get('imports', [])],
-        'strings': [s['name'] for s in fn_data.get('strings', [])],
+        'strings': [s['string'] for s in fn_data.get('strings', [])],
         'disassembly': "\n".join(asm_lines)
     }
 
