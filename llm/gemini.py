@@ -1,9 +1,12 @@
 import google.generativeai as genai
 import os
+from dotenv import load_dotenv
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyA3Cds1oS9EdMyDdi5NmSbffpHJQWGu-Kw")
+load_dotenv()
 
-genai.configure(api_key=GEMINI_API_KEY)
+api_key = os.getenv("GEMINI_API_KEY")
+
+genai.configure(api_key=api_key)
 model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
 def gemini_query(prompt):
