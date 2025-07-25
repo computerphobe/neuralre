@@ -1,99 +1,90 @@
 import os
 import json
+import time
 from tqdm import tqdm
-import ollama
+from ollama import Client
 
 # === CONFIGURATION ===
-MODEL_NAME = "deepseek-r1:7b"
-INPUT_DIR = "./dataset/train"
-OUTPUT_DIR = "summary_outputs"
-BATCH_SIZE = 500
-CHUNK_SIZE = 80000  # tokens/bytes approx per prompt (adjust if needed for long asm files)
+train_dir = "./dataset/train"  # <-- Update this
+output_dir = "summary_output"
+use_dummy = False  # Set to True to simulate summaries
+model_name = "deepseek-r1:7b"
+chunk_size = 100000  # Large chunks for 128k token context
+chunk_overlap = 2000
 
-# === LLM-based summarization ===
-def summarize_with_deepseek(content):
-    prompt = f"""
+# === ENSURE OUTPUT DIRECTORY EXISTS ===
+os.makedirs(output_dir, exist_ok=True)
+
+# === OLLAMA CLIENT ===
+ollama_client = Client(host='http://localhost:11434')
+
+# === SUMMARIZER ===
+def dummy_summary(chunk):
+    time.sleep(0.2)
+    return "This is a dummy summary of the chunk."
+
+def ollama_summary(chunk):
+    try:
+        prompt = f"""
 You are a malware reverse engineering assistant. Given the following x86 assembly code from a disassembled malware binary, generate a high-level summary of what the code does.
 
 Assembly:
 ```
-{content}
+{chunk}
 ```
 
 Summary:
 """
-    try:
-        response = ollama.chat(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt.strip()}]
-        )
-        return response['message']['content']
+        response = ollama_client.generate(model=model_name, prompt=prompt)
+        return response['response'].strip()
     except Exception as e:
-        print(f"[!] LLM failed: {e}")
-        return "ERROR: LLM failed to summarize."
+        return f"[ERROR: {e}]"
 
-# === File pairing and processing ===
-def get_file_pairs(folder_path):
-    files = os.listdir(folder_path)
-    asm_files = sorted([f for f in files if f.endswith('.asm')])
-    byte_files = sorted([f for f in files if f.endswith('.bytes')])
-    return [(asm, asm.replace('.asm', '.bytes')) for asm in asm_files if asm.replace('.asm', '.bytes') in byte_files]
+# === UTIL ===
+def read_file_chunks(filepath, chunk_size=100000, overlap=2000):
+    with open(filepath, 'r', errors='ignore') as f:
+        lines = f.readlines()
 
-def chunk_content(content, max_len=CHUNK_SIZE):
-    lines = content.splitlines()
-    chunks, current = [], []
-    total_len = 0
-    for line in lines:
-        line_len = len(line)
-        if total_len + line_len > max_len:
-            chunks.append("\n".join(current))
-            current = []
-            total_len = 0
-        current.append(line)
-        total_len += line_len
-    if current:
-        chunks.append("\n".join(current))
+    chunks = []
+    i = 0
+    while i < len(lines):
+        chunk = lines[i:i+chunk_size]
+        chunks.append("".join(chunk))
+        i += chunk_size - overlap
     return chunks
 
-def process_batch(folder_path, pairs, batch_index, output_dir):
-    summaries = {}
-    for asm_file, _ in tqdm(pairs, desc=f"Batch {batch_index+1}"):
-        asm_path = os.path.join(folder_path, asm_file)
+# === MAIN ===
+if __name__ == "__main__":
+    asm_files = [f for f in os.listdir(train_dir) if f.endswith(".asm")]
+    print(f"[*] Found {len(asm_files)} .asm files.")
+
+    if not asm_files:
+        print("[X] No .asm files found. Check your train_dir path.")
+        exit(1)
+
+    for idx, asm_file in enumerate(tqdm(asm_files[:500], desc="[+] Processing files")):
+        full_path = os.path.join(train_dir, asm_file)
+        print(f"\n[>] Processing file {idx+1}/{len(asm_files)}: {asm_file}")
+
         try:
-            with open(asm_path, 'r', errors='ignore') as f:
-                content = f.read()
+            chunks = read_file_chunks(full_path, chunk_size, chunk_overlap)
+            print(f"    [*] Split into {len(chunks)} chunks")
 
-            chunks = chunk_content(content)
-            summaries_for_chunks = []
-            for chunk in chunks:
-                summary = summarize_with_deepseek(chunk)
-                summaries_for_chunks.append(summary)
+            all_summaries = []
+            for cidx, chunk in enumerate(chunks):
+                print(f"        [-] Summarizing chunk {cidx+1}/{len(chunks)}")
+                summary = dummy_summary(chunk) if use_dummy else ollama_summary(chunk)
+                all_summaries.append(summary)
 
-            final_summary = "\n".join(summaries_for_chunks)
-            summaries[asm_file] = final_summary
+            combined_summary = "\n".join(all_summaries)
+            output_path = os.path.join(output_dir, asm_file.replace(".asm", ".json"))
+            with open(output_path, "w") as f:
+                json.dump({"file": asm_file, "summary": combined_summary}, f, indent=2)
+
+            print(f"    [✓] Summary saved to {output_path}")
 
         except Exception as e:
-            print(f"[!] Failed to process {asm_file}: {e}")
+            print(f"[X] Error processing {asm_file}: {e}")
             continue
 
-    output_path = os.path.join(output_dir, f'summaries_batch_{batch_index+1}.json')
-    with open(output_path, 'w') as f:
-        json.dump(summaries, f, indent=2)
-
-    print(f"[✓] Saved {len(summaries)} summaries to {output_path}")
-
-# === Main runner ===
-def main():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    pairs = get_file_pairs(INPUT_DIR)
-    print(f"[*] Total samples: {len(pairs)}")
-    total_batches = (len(pairs) + BATCH_SIZE - 1) // BATCH_SIZE
-
-    for i in range(total_batches):
-        start = i * BATCH_SIZE
-        end = min((i + 1) * BATCH_SIZE, len(pairs))
-        current_batch = pairs[start:end]
-        process_batch(INPUT_DIR, current_batch, i, OUTPUT_DIR)
-
-if __name__ == "__main__":
-    main()
+    print("[✓] Summary generation completed.")
