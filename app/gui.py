@@ -1,6 +1,7 @@
 import streamlit as st
-import os
-from static_analysis.r2pipeline import analyse_binary
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from ..static_analysis.r2pipeline import analyse_binary
 from core.engine import prompt_builder
 from llm.gemini import gemini_query
 
